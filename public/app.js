@@ -121,7 +121,8 @@ function render() {
   $('roomCode').textContent = snap.room;
   $('roomChip').hidden = false;
   $('leave').hidden = false;
-  $('spectate').hidden = snap.you === null;
+  $('spectate').hidden = false;
+  $('spectate').textContent = snap.watching ? 'Sit in' : 'Spectate';
   $('leave').textContent = snap.canStart ? 'Disband' : 'Leave';
   const preRound = !snap.game || snap.game.phase === 'over';
   $('start').hidden = !snap.canStart || !preRound;
@@ -336,9 +337,9 @@ function renderTurn(snap) {
     line = `${whoseTurn} ${snap.log[0] ?? ''}`.trim();
   }
 
-  if (!g) hint = snap.you === null ? 'Spectating.' : 'Press Start when everyone is seated.';
+  if (!g) hint = snap.you !== null ? 'Press Start when everyone is seated.' : snap.watching ? 'Spectating.' : 'Waiting for a seat.';
   else if (g.phase === 'over') hint = 'Start a new round when you are ready.';
-  else if (snap.you === null) hint = 'Spectating.';
+  else if (snap.you === null) hint = snap.watching ? 'Spectating.' : 'Sitting in next round.';
   else if (!yourTurn) hint = 'Waiting on the table\u2026';
   else if (g.pick) hint = 'Pick who to swap hands with.';
   else if (g.pending) hint = 'Play the card you drew, or pass.';
@@ -437,16 +438,7 @@ $('copyLink').addEventListener('click', () =>
   copy(`${location.origin}/?room=${app.snap.room}`, $('copyLink')),
 );
 $('leave').addEventListener('click', leaveRoom);
-$('spectate').addEventListener('click', () => {
-  const snap = app.snap;
-  if (!snap || snap.you === null) return;
-
-  const warning =
-    snap.game?.phase === 'playing'
-      ? 'Spectate from the sidelines? A bot takes over your seat for this round.'
-      : 'Spectate from the sidelines? Your seat opens up.';
-  if (confirm(warning)) send('/api/spectate');
-});
+$('spectate').addEventListener('click', () => send('/api/spectate'));
 $('home').addEventListener('click', () => {
   if ($('lobby').open) return;
   if (!app.snap) $('lobby').showModal();

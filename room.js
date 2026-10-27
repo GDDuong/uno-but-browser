@@ -62,16 +62,24 @@ export class Room {
     this.remove(member);
   }
 
-  spectate(member) {
-    if (member.seat === null) return;
+  toggle(member) {
+    if (member.watcher) {
+      this.sit(member);
+      return;
+    }
+
+    member.watcher = true;
+    if (member.seat === null) {
+      this.emit();
+      return;
+    }
 
     if (this.game) {
       const seat = member.seat;
       member.seat = null;
-      member.watcher = true;
       this.members.push({
         id: ++this.nextId,
-        token: crypto.randomUUID(),
+        token: `stand-in-${member.id}`,
         name: member.name,
         seat,
         bot: true,
@@ -82,8 +90,22 @@ export class Room {
     }
 
     member.seat = null;
-    member.watcher = true;
     this.seatMembers();
+    this.emit();
+  }
+
+  sit(member) {
+    member.watcher = false;
+
+    const stand = this.game?.phase === 'playing' && this.members.find((m) => m.token === `stand-in-${member.id}`);
+    if (stand) {
+      member.seat = stand.seat;
+      this.members = this.members.filter((m) => m !== stand);
+      this.changed();
+      return;
+    }
+
+    if (!this.game) this.seatMembers();
     this.emit();
   }
 
@@ -214,6 +236,7 @@ export class Room {
       you: member.seat,
       youId: member.id,
       name: member.name,
+      watching: member.watcher,
       canStart: member === this.creator,
       maxSeats: MAX_SEATS,
       rules: this.rules,

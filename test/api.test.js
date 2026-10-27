@@ -228,6 +228,11 @@ test('table: chosen spectators see hands until the host hides them', async () =>
   const hidden = await stream.until((s) => s.settings.spectatorHands === false);
   assert.ok(hidden.game.players.every((p) => p.hand.length === 0 && p.handCount === 7));
 
+  assert.equal((await post('/api/spectate', { token: host.token })).status, 200);
+  const back = await stream.until((s) => s.seats.find((m) => m.name === 'Hana').seat !== null);
+  assert.equal(back.game.players.length, 2);
+  assert.equal(back.seats.filter((m) => m.bot).length, 0, 'the stand-in bot steps aside');
+
   await stream.close();
 });
 

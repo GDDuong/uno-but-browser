@@ -72,6 +72,7 @@ test('join: a player can choose to watch instead of sit', () => {
   const bo = room.join('Bo');
 
   assert.equal(watcher.seat, null);
+  assert.equal(room.snapshot(watcher).watching, true);
   assert.equal(bo.seat, 1);
 
   room.leave(anna);
@@ -84,18 +85,31 @@ test('spectate: a seated player steps aside and seats close up', () => {
   const anna = room.join('Ana');
   const bo = room.join('Bo');
 
-  room.spectate(anna);
+  room.toggle(anna);
   assert.equal(anna.seat, null);
   assert.equal(anna.watcher, true);
   assert.equal(bo.seat, 0);
   assert.equal(room.snapshot(anna).seats.find((m) => m.name === 'Ana').seat, null);
 });
 
+test('toggle: a spectator sits back in when no round is running', () => {
+  const room = new Room('ABCD');
+  const anna = room.join('Ana');
+  const bo = room.join('Bo');
+
+  room.toggle(anna);
+  room.toggle(anna);
+  assert.equal(anna.watcher, false);
+  assert.equal(anna.seat, 1);
+  assert.equal(room.snapshot(anna).watching, false);
+  assert.equal(bo.seat, 0);
+});
+
 test('spectate: a mid-round player leaves a bot in their seat', () => {
   const { room, a, b } = started();
   const hand = room.game.players[0].hand.length;
 
-  room.spectate(a);
+  room.toggle(a);
   assert.equal(a.seat, null);
   assert.equal(room.snapshot(a).you, null);
   assert.equal(room.game.players.length, 2);
@@ -103,6 +117,33 @@ test('spectate: a mid-round player leaves a bot in their seat', () => {
   assert.equal(room.members.find((m) => m.seat === 0).bot, true);
   assert.equal(b.seat, 1);
   assert.equal(room.snapshot(a).seats.filter((m) => m.seat !== null).length, 2);
+});
+
+test('toggle: a mid-round spectator takes their seat back from the bot', () => {
+  const { room, a, b } = started();
+  const hand = room.game.players[0].hand.length;
+
+  room.toggle(a);
+  room.toggle(a);
+  assert.equal(a.seat, 0);
+  assert.equal(a.watcher, false);
+  assert.equal(room.snapshot(a).you, 0);
+  assert.equal(room.game.players[0].hand.length, hand);
+  assert.equal(room.members.filter((m) => m.bot).length, 0);
+  assert.equal(room.members.find((m) => m.seat === 0), a);
+  assert.equal(b.seat, 1);
+});
+
+test('toggle: a spectator takes the next open seat', () => {
+  const { room } = started();
+  const watcher = room.join('Cass', { spectate: true });
+
+  room.toggle(watcher);
+  assert.equal(watcher.watcher, false);
+  assert.equal(room.snapshot(watcher).you, null, 'no seat is handed out mid-round');
+
+  room.toggle(watcher);
+  assert.equal(watcher.watcher, true);
 });
 
 test('join: extra people spectate once the ten seats are taken', () => {

@@ -128,7 +128,7 @@ async function api(req, res) {
   else if (pathname === '/api/settings') session.room.setSettings(session.member, settings);
   else if (pathname === '/api/move') session.room.act(session.member, move ?? {});
   else if (pathname === '/api/chat') session.room.say(session.member, text);
-  else if (pathname === '/api/spectate') session.room.spectate(session.member);
+  else if (pathname === '/api/spectate') session.room.toggle(session.member);
   else if (pathname === '/api/leave') {
     const room = session.room;
     if (session.member === room.creator) dropRoom(room, 'The host closed the room.');

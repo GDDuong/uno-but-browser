@@ -6,7 +6,7 @@ A no-install UNO table for the browser: 4-letter rooms, bots, chat, house rules.
 
 - **Rooms** — create one, share the 4-letter code or link, 2–10 seats
 - **Bots** — optional, add 0–9 from the header
-- **Spectators** — join with the room code as a watcher or press **Spectate** in the room to step aside; they get their own list, and see every hand by default until the host hides it from the Table settings
+- **Spectators** — join with the room code as a watcher or toggle **Spectate / Sit in** in the room; they get their own list, and see every hand by default until the host hides it from the Table settings
 - **Host tools** — kick players, disband the room; anyone can leave
 - **Server-authoritative** — hands are redacted per player; spectators only see every hand while the host allows it
 - **Chat** — table talk in a collapsible drawer
