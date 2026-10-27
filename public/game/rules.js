@@ -32,14 +32,15 @@ export function createGame(names, { rng = Math.random, rules } = {}) {
 
 export const topCard = (state) => state.discard[state.discard.length - 1];
 
-export function viewFor(state, viewerSeat) {
+export function viewFor(state, viewerSeat, spectatorHands = true) {
   // Card ids carry no face info on the wire, so pending.cardId is safe to broadcast with the hands hidden.
+  const seeAll = viewerSeat === null && spectatorHands;
   return {
     ...state,
     deck: [],
     deckCount: state.deck.length,
     players: state.players.map((p) =>
-      p.id === viewerSeat ? { ...p } : { id: p.id, name: p.name, hand: [], handCount: p.hand.length },
+      p.id === viewerSeat || seeAll ? { ...p } : { id: p.id, name: p.name, hand: [], handCount: p.hand.length },
     ),
   };
 }

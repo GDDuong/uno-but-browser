@@ -15,29 +15,48 @@
 <body>
   <header class="bar">
     <h1 class="brand">
-      <span class="brand__word">UNO</span>
+      <button class="brand__word" id="home" type="button" title="Back to the start screen">UNO</button>
       <span class="brand__rest">but browser</span>
     </h1>
     <p class="status" id="status" aria-live="polite"></p>
     <div class="controls">
-      <button class="room-pill" id="roomPill" type="button" title="Copy room code" hidden>
-        <span>Room</span>
+      <span class="room-chip" id="roomChip" hidden>
+        <span class="room-chip__label">Room</span>
         <b id="roomCode"></b>
-      </button>
+        <button class="room-chip__copy" id="copyRoom" type="button" aria-label="Copy room code">Copy</button>
+      </span>
       <label class="field" id="botsField">
         <span>Bots</span>
         <select id="bots">
+          <option value="0" selected>0</option>
           <option value="1">1</option>
-          <option value="2" selected>2</option>
+          <option value="2">2</option>
           <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
         </select>
       </label>
       <button class="btn" id="start" type="button" hidden>Start</button>
+      <button class="btn btn--ghost btn--small" id="spectate" type="button" hidden>Spectate</button>
+      <button class="btn btn--ghost btn--small" id="leave" type="button" hidden>Leave</button>
     </div>
   </header>
 
   <main class="table">
-    <ul class="seats" id="seats" aria-label="Players"></ul>
+    <div class="roster" id="roster">
+      <div class="roster__group">
+        <h2 class="roster__label" id="playersLabel">Players</h2>
+        <ul class="seats" id="seats" aria-labelledby="playersLabel"></ul>
+      </div>
+      <div class="roster__group" id="watchGroup" hidden>
+        <h2 class="roster__label" id="watchersLabel">Spectators</h2>
+        <ul class="seats" id="watchers" aria-labelledby="watchersLabel"></ul>
+      </div>
+    </div>
 
     <section class="center">
       <div class="wait" id="wait" hidden>
@@ -63,6 +82,13 @@
             <span>0&ndash;7<small>0 turns every hand over, 7 swaps yours with someone.</small></span>
           </label>
         </fieldset>
+        <fieldset class="rules rules--table" id="tableSettings">
+          <legend>Table</legend>
+          <label class="rules__row">
+            <input type="checkbox" id="settingSpectatorHands">
+            <span>Spectators see hands<small>Turn off to hide every hand from people watching.</small></span>
+          </label>
+        </fieldset>
         <p class="wait__note" id="waitNote"></p>
       </div>
 
@@ -85,10 +111,11 @@
     </section>
 
     <section class="hand-wrap">
+      <div class="spectator-hands" id="spectatorHands" hidden></div>
       <div class="hand" id="hand" role="group" aria-label="Your hand" tabindex="-1"></div>
       <div class="turnbar">
         <p class="hint" id="hint"></p>
-        <div class="acts">
+        <div class="acts" id="acts">
           <button class="btn" id="draw" type="button">Draw</button>
           <button class="btn btn--ghost" id="pass" type="button">Pass</button>
         </div>
@@ -112,7 +139,7 @@
     <div class="lobby__hero">
       <p class="lobby__kicker">UNO but browser</p>
       <h2 class="lobby__title" id="lobbyTitle">Pull up a seat</h2>
-      <p class="lobby__lede">Two to six seats, bots welcome. Open a room, send the code, deal.</p>
+      <p class="lobby__lede">Two to ten seats, bots welcome. Open a room, send the code, deal.</p>
       <div class="lobby__art" aria-hidden="true">
         <div class="card card--red"><span class="card__corner">7</span><span class="card__glyph">7</span><span class="card__corner card__corner--br">7</span></div>
         <div class="card card--yellow"><span class="card__corner">9</span><span class="card__glyph">9</span><span class="card__corner card__corner--br">9</span></div>
@@ -132,6 +159,7 @@
         <label class="sr-only" for="code">Room code</label>
         <input class="input input--code" id="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
         <button class="btn btn--ghost" type="submit" value="join">Join</button>
+        <button class="btn btn--ghost lobby__watch" type="submit" value="watch" title="Join without a seat">Spectate</button>
       </div>
       <p class="lobby__error" id="lobbyError" role="alert"></p>
     </form>

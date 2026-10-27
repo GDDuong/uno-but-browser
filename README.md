@@ -4,9 +4,11 @@ A no-install UNO table for the browser: 4-letter rooms, bots, chat, house rules.
 
 ## Features
 
-- **Rooms** — create one, share the 4-letter code or link, 2–6 seats
-- **Bots** — fill empty seats, from the header
-- **Server-authoritative** — hands are redacted per player, so nobody can peek or cheat
+- **Rooms** — create one, share the 4-letter code or link, 2–10 seats
+- **Bots** — optional, add 0–9 from the header
+- **Spectators** — join with the room code as a watcher or press **Spectate** in the room to step aside; they get their own list, and see every hand by default until the host hides it from the Table settings
+- **Host tools** — kick players, disband the room; anyone can leave
+- **Server-authoritative** — hands are redacted per player; spectators only see every hand while the host allows it
 - **Chat** — table talk in a collapsible drawer
 - **House rules** — forced play, stacking (+2/+4), 0–7 (rotate hands / swap hands)
 - **Keyboard & mobile friendly** — focus rings, 44px touch targets, reduced-motion support
@@ -26,6 +28,14 @@ Set `PORT` to change the port:
 ```bash
 PORT=8080 npm start
 ```
+
+## Deploy on Render
+
+1. Create a **Web Service** from this repo.
+2. Build command: `npm install` (no dependencies, but that is Render's default). Start command: `npm start`.
+3. Render supplies `PORT` and HTTPS automatically; SSE streams through its proxy.
+
+Rooms live in memory, so a deploy, restart, or free-tier spin-down clears them.
 
 ## Test
 

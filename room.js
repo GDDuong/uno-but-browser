@@ -3,7 +3,7 @@ import { applyMove, createGame, playableCards, viewFor } from './public/game/rul
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const BOT_MS = 900;
-const MAX_SEATS = 6;
+const MAX_SEATS = 10;
 const RULE_NAMES = { forcedPlay: 'forced play', stacking: 'stacking', sevenZero: '0\u20137' };
 
 export const newCode = () =>
@@ -19,8 +19,10 @@ export class Room {
     this.log = [];
     this.chat = [];
     this.rules = { forcedPlay: false, stacking: false, sevenZero: false };
+    this.settings = { spectatorHands: true };
     this.round = 0;
     this.timer = 0;
+    this.nextId = 0;
     this.emit = () => {};
   }
 
@@ -28,22 +30,86 @@ export class Room {
     return this.members.find((m) => m.token === token);
   }
 
-  join(name) {
+  join(name, { spectate = false } = {}) {
     const member = {
+      id: ++this.nextId,
       token: crypto.randomUUID(),
       name: String(name).replace(/\s+/g, ' ').trim().slice(0, 20) || 'Player',
       seat: null,
       bot: false,
+      watcher: Boolean(spectate),
     };
 
     if (!this.creator) this.creator = member;
-    if (!this.game && this.members.filter((m) => !m.bot).length < MAX_SEATS) {
-      member.seat = this.members.filter((m) => !m.bot).length;
-    }
+    const seated = this.members.filter((m) => m.seat !== null).length;
+    if (!spectate && !this.game && seated < MAX_SEATS) member.seat = seated;
     this.members.push(member);
 
     this.emit();
     return member;
+  }
+
+  kick(member, id) {
+    if (member !== this.creator) throw new Error('Only the host can kick');
+    const target = this.members.find((m) => m.id === Number(id) && !m.bot);
+    if (!target || target === member) throw new Error('No such player');
+
+    this.remove(target);
+    return target;
+  }
+
+  leave(member) {
+    this.remove(member);
+  }
+
+  spectate(member) {
+    if (member.seat === null) return;
+
+    if (this.game) {
+      const seat = member.seat;
+      member.seat = null;
+      member.watcher = true;
+      this.members.push({
+        id: ++this.nextId,
+        token: crypto.randomUUID(),
+        name: member.name,
+        seat,
+        bot: true,
+        watcher: false,
+      });
+      this.changed();
+      return;
+    }
+
+    member.seat = null;
+    member.watcher = true;
+    this.seatMembers();
+    this.emit();
+  }
+
+  remove(member) {
+    if (this.game) {
+      if (member.seat === null) {
+        this.members = this.members.filter((m) => m !== member);
+        this.emit();
+        return;
+      }
+      // ponytail: a mid-round leaver becomes a bot in place so hands and turn order stay valid
+      member.bot = true;
+      this.changed();
+      return;
+    }
+
+    this.members = this.members.filter((m) => m !== member);
+    this.seatMembers();
+    this.emit();
+  }
+
+  // People who chose to watch keep watching; overflow players take a seat when one opens.
+  seatMembers() {
+    let seat = 0;
+    for (const m of this.members) if (m.seat !== null) m.seat = seat++;
+    for (const m of this.members) if (m.seat === null && !m.watcher && seat < MAX_SEATS) m.seat = seat++;
   }
 
   setRules(member, rules) {
@@ -58,26 +124,33 @@ export class Room {
     this.emit();
   }
 
+  setSettings(member, settings) {
+    if (member !== this.creator) throw new Error('Only the host can change the table settings');
+
+    this.settings = { spectatorHands: Boolean(settings?.spectatorHands) };
+    this.emit();
+  }
+
   start(member, bots = 0) {
     if (member !== this.creator) throw new Error('Only the room creator can start');
 
     clearTimeout(this.timer);
     this.members = this.members.filter((m) => !m.bot);
-    this.members.forEach((m, i) => {
-      m.seat = i;
-    });
+    this.seatMembers();
 
-    const count = Math.max(0, Math.min(Number(bots), MAX_SEATS - this.members.length));
+    const seated = this.members.filter((m) => m.seat !== null);
+    const count = Math.max(0, Math.min(Number(bots), MAX_SEATS - seated.length));
     for (let i = 0; i < count; i++) {
-      this.members.push({ token: `bot-${i}`, name: `Bot ${i + 1}`, seat: this.members.length, bot: true });
+      this.members.push({ id: ++this.nextId, token: `bot-${i}`, name: `Bot ${i + 1}`, seat: seated.length + i, bot: true });
     }
-    if (this.members.length < 2) throw new Error('Needs two players. Add a friend or a bot.');
+    const players = this.members.filter((m) => m.seat !== null);
+    if (players.length < 2) throw new Error('Needs two players. Add a friend or a bot.');
 
-    this.game = createGame(this.members.map((m) => m.name), { rules: this.rules });
+    this.game = createGame(players.map((m) => m.name), { rules: this.rules });
     this.round += 1;
 
     const on = Object.keys(RULE_NAMES).filter((key) => this.rules[key]).map((key) => RULE_NAMES[key]);
-    this.log = [`Dealt to ${this.members.length}${on.length ? ` \u00b7 ${on.join(', ')}` : ''}. ${this.game.players[0].name} starts.`];
+    this.log = [`Dealt to ${players.length}${on.length ? ` \u00b7 ${on.join(', ')}` : ''}. ${this.game.players[0].name} starts.`];
     this.changed();
   }
 
@@ -139,12 +212,14 @@ export class Room {
       room: this.code,
       round: this.round,
       you: member.seat,
+      youId: member.id,
       name: member.name,
       canStart: member === this.creator,
       maxSeats: MAX_SEATS,
       rules: this.rules,
-      seats: this.members.map((m) => ({ name: m.name, seat: m.seat, bot: m.bot, host: m === this.creator })),
-      game: this.game ? viewFor(this.game, member.seat) : null,
+      settings: this.settings,
+      seats: this.members.map((m) => ({ id: m.id, name: m.name, seat: m.seat, bot: m.bot, host: m === this.creator })),
+      game: this.game ? viewFor(this.game, member.seat, this.settings.spectatorHands) : null,
       log: this.log,
       chat: this.chat,
     };

@@ -15,7 +15,8 @@ const RULE_KEYS = { ruleForced: 'forcedPlay', ruleStack: 'stacking', ruleSevenZe
 const app = { snap: null, stream: null, error: '', pickCard: null, round: 0, lastTop: null, winKey: null };
 
 const stored = () => JSON.parse(sessionStorage.getItem('uno') ?? 'null');
-const esc = (text) => String(text).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+const esc = (text) =>
+  String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 async function send(path, data) {
   const res = await fetch(path, {
@@ -30,11 +31,11 @@ async function send(path, data) {
   return body;
 }
 
-async function join(name, code) {
+async function join(name, code, spectate = false) {
   const res = await fetch('/api/join', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name, room: code || undefined }),
+    body: JSON.stringify({ name, room: code || undefined, spectate }),
   });
   const body = await res.json().catch(() => ({}));
 
@@ -87,6 +88,27 @@ function connect({ room, token }) {
     app.error = 'Lost the table. Reload to rejoin.';
     render();
   });
+  app.stream.addEventListener('closed', (event) => {
+    let reason = 'The room closed.';
+    try {
+      reason = JSON.parse(event.data).reason || reason;
+    } catch {
+      // keep the default
+    }
+    app.stream.close();
+    sessionStorage.removeItem('uno');
+    app.snap = null;
+    app.round = 0;
+    app.winKey = null;
+    app.lastTop = null;
+    for (const id of ['pick', 'swap', 'over']) if ($(id).open) $(id).close();
+    history.replaceState(null, '', '/');
+    $('lobbyError').textContent = reason;
+    $('roomChip').hidden = true;
+    $('leave').hidden = true;
+    $('spectate').hidden = true;
+    if (!$('lobby').open) $('lobby').showModal();
+  });
 }
 
 function render() {
@@ -97,7 +119,10 @@ function render() {
   const hadHandFocus = handEl.contains(document.activeElement);
 
   $('roomCode').textContent = snap.room;
-  $('roomPill').hidden = false;
+  $('roomChip').hidden = false;
+  $('leave').hidden = false;
+  $('spectate').hidden = snap.you === null;
+  $('leave').textContent = snap.canStart ? 'Disband' : 'Leave';
   const preRound = !snap.game || snap.game.phase === 'over';
   $('start').hidden = !snap.canStart || !preRound;
   $('botsField').hidden = $('start').hidden;
@@ -127,33 +152,54 @@ function render() {
 
 function renderSeats(snap) {
   const g = snap.game;
-  const rows = g
-    ? g.players.map((p) => ({
-        name: p.name,
-        count: p.handCount ?? p.hand.length,
-        active: g.phase === 'playing' && p.id === g.current,
-        winner: p.id === g.winner,
-        you: p.id === snap.you,
-      }))
-    : snap.seats.map((m) => ({
-        name: m.seat === null ? `${m.name} (watching)` : m.name,
-        count: m.seat === null ? '' : '\u00b7',
-        host: m.host,
-        active: false,
-        winner: false,
-        you: m.seat === snap.you,
-      }));
+  const seated = new Map(snap.seats.filter((m) => m.seat !== null).map((m) => [m.seat, m]));
+  const players = g
+    ? g.players.map((p) => {
+        const m = seated.get(p.id);
+        return {
+          name: p.name,
+          count: p.handCount ?? p.hand.length,
+          active: g.phase === 'playing' && p.id === g.current,
+          winner: p.id === g.winner,
+          you: p.id === snap.you,
+          host: m?.host,
+          kick: snap.canStart && m && !m.host && !m.bot ? m.id : null,
+        };
+      })
+    : snap.seats
+        .filter((m) => m.seat !== null)
+        .map((m) => ({
+          name: m.name,
+          count: '',
+          host: m.host,
+          you: m.id === snap.youId,
+          kick: snap.canStart && !m.host ? m.id : null,
+        }));
 
-  $('seats').innerHTML = rows
-    .map(
-      (row) => `<li class="seat${row.active ? ' is-active' : ''}${row.winner ? ' is-winner' : ''}${row.you ? ' is-you' : ''}">
-        <span class="seat__avatar" aria-hidden="true">${initials(row.name)}</span>
-        <span class="seat__name">${esc(row.name)}</span>
-        ${row.host ? '<span class="seat__host">host</span>' : ''}
-        <span class="seat__count" aria-label="${row.count} cards">${row.count}</span>
-      </li>`,
+  const watching = snap.seats.filter((m) => m.seat === null);
+
+  $('seats').innerHTML = players.map(seatHTML).join('');
+  $('watchers').innerHTML = watching
+    .map((m) =>
+      seatHTML({
+        name: m.name,
+        host: m.host,
+        you: m.id === snap.youId,
+        kick: snap.canStart && !m.host ? m.id : null,
+      }),
     )
     .join('');
+  $('watchGroup').hidden = !watching.length;
+}
+
+function seatHTML(row) {
+  return `<li class="seat${row.active ? ' is-active' : ''}${row.winner ? ' is-winner' : ''}${row.you ? ' is-you' : ''}">
+    <span class="seat__avatar" aria-hidden="true">${esc(initials(row.name))}</span>
+    <span class="seat__name">${esc(row.name)}</span>
+    ${row.host ? '<span class="seat__host">host</span>' : ''}
+    ${row.count ? `<span class="seat__count" aria-label="${row.count} cards">${row.count}</span>` : ''}
+    ${row.kick ? `<button class="seat__kick" type="button" data-kick="${row.kick}" data-name="${esc(row.name)}" aria-label="Kick ${esc(row.name)}" title="Kick ${esc(row.name)}">&#10005;</button>` : ''}
+  </li>`;
 }
 
 function renderWait(snap) {
@@ -165,12 +211,18 @@ function renderWait(snap) {
   if (!waiting) return;
 
   $('waitCode').textContent = snap.room;
-  $('waitSub').textContent = `${snap.seats.length} of ${snap.maxSeats} seats`;
+  const seated = snap.seats.filter((s) => s.seat !== null).length;
+  const watching = snap.seats.length - seated;
+  $('waitSub').textContent = `${seated} of ${snap.maxSeats} seats${watching ? ` \u00b7 ${watching} watching` : ''}`;
   $('rules').disabled = !snap.canStart;
+  $('tableSettings').disabled = !snap.canStart;
   for (const [inputId, key] of Object.entries(RULE_KEYS)) $(inputId).checked = Boolean(snap.rules[key]);
+  $('settingSpectatorHands').checked = Boolean(snap.settings?.spectatorHands);
   $('waitNote').textContent = snap.canStart
-    ? 'Bots sit down from the header. Start deals once two players are in.'
-    : 'Only the host can change the house rules.';
+    ? seated < 2
+      ? 'Waiting for a friend? Add bots from the header, or share the code.'
+      : 'Add bots from the header. Start deals when you are ready.'
+    : 'Only the host can change the rules or table settings.';
 }
 
 function renderSwap(snap) {
@@ -218,6 +270,35 @@ function renderCenter(g) {
 
 function renderHand(snap) {
   const g = snap.game;
+  const panel = $('spectatorHands');
+
+  if (g && snap.you === null) {
+    handEl.hidden = true;
+    panel.hidden = false;
+    const reveal = Boolean(snap.settings?.spectatorHands);
+    panel.innerHTML = g.players
+      .map((p) => {
+        const count = p.handCount ?? p.hand.length;
+        const cards = reveal
+          ? p.hand
+              .map(
+                (card) =>
+                  `<div class="card card--${card.color} card--mini" role="img" aria-label="${esc(cardLabel(card))}">${cardInner(card)}</div>`,
+              )
+              .join('')
+          : `<span class="hands__hidden">${count} card${count === 1 ? '' : 's'} hidden</span>`;
+        return `<div class="hands__row">
+          <p class="hands__who">${esc(p.name)}${g.phase === 'playing' && p.id === g.current ? ' <span class="hands__turn">turn</span>' : ''}</p>
+          <div class="hands__cards">${cards}</div>
+        </div>`;
+      })
+      .join('');
+    return;
+  }
+
+  handEl.hidden = false;
+  panel.hidden = true;
+
   const me = g && snap.you !== null ? g.players[snap.you] : null;
   const hand = me ? [...me.hand].sort(byCardOrder) : [];
   const mid = (hand.length - 1) / 2;
@@ -267,6 +348,7 @@ function renderTurn(snap) {
 
   $('status').textContent = line;
   $('hint').textContent = hint;
+  $('acts').hidden = snap.you === null;
   drawBtn.disabled = !canDraw;
   deckBtn.disabled = !canDraw;
   $('pass').hidden = Boolean(g?.rules?.forcedPlay);
@@ -312,6 +394,18 @@ function beginRound() {
   send('/api/start', { bots: Number($('bots').value) });
 }
 
+function leaveRoom() {
+  const snap = app.snap;
+  if (!snap) return;
+
+  const warning = snap.canStart
+    ? 'You host this room. Going back closes it for everyone. Leave?'
+    : snap.game?.phase === 'playing'
+      ? 'Leave the table? A bot will take over your seat.'
+      : 'Leave this room?';
+  if (confirm(warning)) send('/api/leave');
+}
+
 handEl.addEventListener('click', (event) => {
   const button = event.target.closest('button.card--hand');
   if (!button || button.disabled) return;
@@ -337,16 +431,43 @@ $('again').addEventListener('click', () => {
   beginRound();
 });
 
-$('roomPill').addEventListener('click', () => copy(app.snap.room, $('roomPill')));
+$('copyRoom').addEventListener('click', () => copy(app.snap.room, $('copyRoom')));
 $('copyCode').addEventListener('click', () => copy(app.snap.room, $('copyCode')));
 $('copyLink').addEventListener('click', () =>
   copy(`${location.origin}/?room=${app.snap.room}`, $('copyLink')),
 );
+$('leave').addEventListener('click', leaveRoom);
+$('spectate').addEventListener('click', () => {
+  const snap = app.snap;
+  if (!snap || snap.you === null) return;
+
+  const warning =
+    snap.game?.phase === 'playing'
+      ? 'Spectate from the sidelines? A bot takes over your seat for this round.'
+      : 'Spectate from the sidelines? Your seat opens up.';
+  if (confirm(warning)) send('/api/spectate');
+});
+$('home').addEventListener('click', () => {
+  if ($('lobby').open) return;
+  if (!app.snap) $('lobby').showModal();
+  else leaveRoom();
+});
+$('roster').addEventListener('click', (event) => {
+  const kick = event.target.closest('[data-kick]');
+  if (!kick) return;
+  if (confirm(`Kick ${kick.dataset.name}? They can rejoin with the room code.`)) {
+    send('/api/kick', { id: Number(kick.dataset.kick) });
+  }
+});
 
 $('rules').addEventListener('change', () => {
   const rules = {};
   for (const [id, key] of Object.entries(RULE_KEYS)) rules[key] = $(id).checked;
   send('/api/rules', { rules });
+});
+
+$('tableSettings').addEventListener('change', () => {
+  send('/api/settings', { settings: { spectatorHands: $('settingSpectatorHands').checked } });
 });
 
 $('swap').addEventListener('cancel', (event) => event.preventDefault());
@@ -362,15 +483,16 @@ $('lobby').addEventListener('cancel', (event) => event.preventDefault());
 $('lobbyForm').addEventListener('submit', (event) => {
   event.preventDefault();
   const name = $('name').value;
+  const action = event.submitter?.value;
 
-  if (event.submitter?.value === 'join') {
+  if (action === 'join' || action === 'watch') {
     const code = $('code').value.trim().toUpperCase();
     if (!/^[A-Z]{4}$/.test(code)) {
       $('lobbyError').textContent = 'Room codes are four letters.';
       $('code').focus();
       return;
     }
-    join(name, code);
+    join(name, code, action === 'watch');
     return;
   }
 

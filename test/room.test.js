@@ -41,26 +41,133 @@ test('snapshot: hides every other hand and the draw pile', () => {
   assert.equal(view.you, 1);
 });
 
-test('snapshot: late joiners spectate with no hand at all', () => {
+test('snapshot: spectators see every hand by default, the deck stays hidden', () => {
   const { room } = started();
   const watcher = room.join('Cass');
   assert.equal(watcher.seat, null);
 
   const view = room.snapshot(watcher);
   assert.equal(view.you, null);
-  assert.ok(view.game.players.every((p) => p.hand.length === 0));
+  assert.ok(view.game.players.every((p) => p.hand.length === 7));
+  assert.equal(view.game.deck.length, 0);
 });
 
-test('join: extra people spectate once the six seats are taken', () => {
-  const room = new Room('ABCD');
-  const members = Array.from({ length: 7 }, (_, i) => room.join(`P${i}`));
+test('settings: only the host hides spectator hands, and the view follows', () => {
+  const { room, a, b } = started();
+  const watcher = room.join('Cass');
+  assert.equal(room.snapshot(watcher).settings.spectatorHands, true);
 
-  assert.equal(members[5].seat, 5);
-  assert.equal(members[6].seat, null);
+  assert.throws(() => room.setSettings(b, { spectatorHands: false }), /host/);
+  room.setSettings(a, { spectatorHands: false });
+
+  const hidden = room.snapshot(watcher).game.players;
+  assert.ok(hidden.every((p) => p.hand.length === 0 && p.handCount === 7));
+  assert.equal(room.snapshot(b).game.players[1].hand.length, 7, 'players still see their own hand');
+});
+
+test('join: a player can choose to watch instead of sit', () => {
+  const room = new Room('ABCD');
+  const anna = room.join('Ana');
+  const watcher = room.join('Cass', { spectate: true });
+  const bo = room.join('Bo');
+
+  assert.equal(watcher.seat, null);
+  assert.equal(bo.seat, 1);
+
+  room.leave(anna);
+  assert.equal(watcher.seat, null, 'a chosen spectator stays a spectator');
+  assert.equal(bo.seat, 0);
+});
+
+test('spectate: a seated player steps aside and seats close up', () => {
+  const room = new Room('ABCD');
+  const anna = room.join('Ana');
+  const bo = room.join('Bo');
+
+  room.spectate(anna);
+  assert.equal(anna.seat, null);
+  assert.equal(anna.watcher, true);
+  assert.equal(bo.seat, 0);
+  assert.equal(room.snapshot(anna).seats.find((m) => m.name === 'Ana').seat, null);
+});
+
+test('spectate: a mid-round player leaves a bot in their seat', () => {
+  const { room, a, b } = started();
+  const hand = room.game.players[0].hand.length;
+
+  room.spectate(a);
+  assert.equal(a.seat, null);
+  assert.equal(room.snapshot(a).you, null);
+  assert.equal(room.game.players.length, 2);
+  assert.equal(room.game.players[0].hand.length, hand);
+  assert.equal(room.members.find((m) => m.seat === 0).bot, true);
+  assert.equal(b.seat, 1);
+  assert.equal(room.snapshot(a).seats.filter((m) => m.seat !== null).length, 2);
+});
+
+test('join: extra people spectate once the ten seats are taken', () => {
+  const room = new Room('ABCD');
+  const members = Array.from({ length: 11 }, (_, i) => room.join(`P${i}`));
+
+  assert.equal(members[9].seat, 9);
+  assert.equal(members[10].seat, null);
   assert.deepEqual(
     room.snapshot(members[0]).seats.map((s) => s.host),
-    [true, false, false, false, false, false, false],
+    [true, false, false, false, false, false, false, false, false, false, false],
   );
+});
+
+test('leave: a waiting player drops out and seats close up', () => {
+  const room = new Room('ABCD');
+  const a = room.join('Ana');
+  const b = room.join('Bo');
+  const c = room.join('Cass');
+
+  room.leave(b);
+  assert.deepEqual(room.snapshot(a).seats.map((s) => s.name), ['Ana', 'Cass']);
+  assert.equal(c.seat, 1);
+});
+
+test('leave: a watcher takes the seat that opens up, up to ten', () => {
+  const room = new Room('ABCD');
+  const members = Array.from({ length: 12 }, (_, i) => room.join(`P${i}`));
+
+  room.leave(members[0]);
+  const seats = room.snapshot(members[1]).seats;
+  assert.equal(seats.filter((s) => s.seat !== null).length, 10);
+  assert.equal(members[11].seat, null);
+});
+
+test('leave: a mid-round player hands their seat to a bot', () => {
+  const { room, b } = started();
+  const hand = room.game.players[1].hand.length;
+
+  room.leave(b);
+  assert.equal(room.game.players.length, 2);
+  assert.equal(room.game.players[1].hand.length, hand);
+  assert.equal(room.members.find((m) => m.name === 'Bo').bot, true);
+  assert.deepEqual(room.snapshot(room.members[0]).seats.map((s) => s.bot), [false, true]);
+});
+
+test('kick: only the host can remove players', () => {
+  const room = new Room('ABCD');
+  const a = room.join('Ana');
+  const b = room.join('Bo');
+  const c = room.join('Cass');
+
+  assert.throws(() => room.kick(b, c.id), /host/);
+  assert.equal(room.kick(a, c.id).name, 'Cass');
+  assert.deepEqual(room.snapshot(a).seats.map((s) => s.name), ['Ana', 'Bo']);
+});
+
+test('start: watchers stay out of the deal', () => {
+  const room = new Room('ABCD');
+  const members = Array.from({ length: 11 }, (_, i) => room.join(`P${i}`));
+
+  room.start(members[0], 0);
+  assert.equal(room.game.players.length, 10);
+  assert.equal(members[10].seat, null);
+  assert.equal(room.snapshot(members[10]).you, null);
 });
 
 test('act: refuses a move out of turn', () => {

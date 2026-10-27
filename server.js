@@ -46,8 +46,9 @@ function openStream(token, res) {
 
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
-    'cache-control': 'no-cache',
+    'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
+    'x-accel-buffering': 'no',
   });
 
   let set = streams.get(token);
@@ -66,6 +67,27 @@ setInterval(() => {
   for (const set of streams.values()) for (const res of set) res.write(': ping\n\n');
 }, 25_000).unref();
 
+function detach(member, reason) {
+  const set = streams.get(member.token);
+  if (set) {
+    const frame = `event: closed\ndata: ${JSON.stringify({ reason })}\n\n`;
+    for (const res of set) {
+      res.write(frame);
+      res.end();
+    }
+    streams.delete(member.token);
+  }
+  sessions.delete(member.token);
+}
+
+function dropRoom(room, reason) {
+  rooms.delete(room.code);
+  clearTimeout(room.timer);
+  const members = room.members;
+  room.members = [];
+  for (const member of members) detach(member, member === room.creator ? 'You closed the room.' : reason);
+}
+
 const json = (res, status, data) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(data));
@@ -81,7 +103,7 @@ async function readBody(req) {
 }
 
 async function api(req, res) {
-  const { token, name, room: code, bots, move, text, rules } = await readBody(req);
+  const { token, name, room: code, bots, move, text, rules, settings, spectate, id } = await readBody(req);
   const { pathname } = new URL(req.url, 'http://localhost');
 
   if (pathname === '/api/join') {
@@ -93,7 +115,7 @@ async function api(req, res) {
       room = createRoom();
     }
 
-    const member = room.join(name);
+    const member = room.join(name, { spectate: Boolean(spectate) });
     sessions.set(member.token, { room, member });
     return json(res, 200, { room: room.code, token: member.token });
   }
@@ -103,9 +125,21 @@ async function api(req, res) {
 
   if (pathname === '/api/start') session.room.start(session.member, Number(bots) || 0);
   else if (pathname === '/api/rules') session.room.setRules(session.member, rules);
+  else if (pathname === '/api/settings') session.room.setSettings(session.member, settings);
   else if (pathname === '/api/move') session.room.act(session.member, move ?? {});
   else if (pathname === '/api/chat') session.room.say(session.member, text);
-  else return json(res, 404, { error: 'Unknown call' });
+  else if (pathname === '/api/spectate') session.room.spectate(session.member);
+  else if (pathname === '/api/leave') {
+    const room = session.room;
+    if (session.member === room.creator) dropRoom(room, 'The host closed the room.');
+    else {
+      room.leave(session.member);
+      detach(session.member, 'You left the room.');
+    }
+  } else if (pathname === '/api/kick') {
+    const kicked = session.room.kick(session.member, id);
+    detach(kicked, 'The host removed you from the room.');
+  } else return json(res, 404, { error: 'Unknown call' });
 
   json(res, 200, { ok: true });
 }

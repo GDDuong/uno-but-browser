@@ -177,4 +177,58 @@ function pickMove(game) {
   return move;
 }
 
+test('party: the host can kick and disband', async () => {
+  await waitReady();
+
+  const host = (await post('/api/join', { name: 'Host' })).body;
+  const guest = (await post('/api/join', { name: 'Guest', room: host.room })).body;
+  const stream = await openStream(host.token);
+  const lobby = await stream.until((s) => s.seats.length === 2);
+  const guestSeat = lobby.seats.find((s) => s.name === 'Guest');
+
+  assert.equal((await post('/api/kick', { token: guest.token, id: guestSeat.id })).status, 400, 'guests cannot kick');
+  assert.equal((await post('/api/kick', { token: host.token, id: guestSeat.id })).status, 200);
+  assert.equal((await post('/api/move', { token: guest.token, move: { type: 'draw' } })).status, 401);
+
+  const alone = await stream.until((s) => s.seats.length === 1);
+  assert.deepEqual(alone.seats.map((s) => s.name), ['Host']);
+
+  assert.equal((await post('/api/leave', { token: host.token })).status, 200);
+  assert.equal((await post('/api/join', { name: 'Late', room: host.room })).status, 404);
+
+  await stream.close();
+});
+
+test('table: chosen spectators see hands until the host hides them', async () => {
+  await waitReady();
+
+  const host = (await post('/api/join', { name: 'Hana' })).body;
+  const guest = (await post('/api/join', { name: 'Gus', room: host.room })).body;
+  const watch = (await post('/api/join', { name: 'TV', room: host.room, spectate: true })).body;
+  const stream = await openStream(watch.token);
+
+  const lobby = await stream.until((s) => s.seats.length === 3);
+  assert.equal(lobby.seats.find((s) => s.name === 'TV').seat, null);
+  assert.equal(lobby.seats.filter((s) => s.seat !== null).length, 2);
+
+  assert.equal((await post('/api/start', { token: host.token, bots: 0 })).status, 200);
+
+  const dealt = await stream.until((s) => s.game);
+  assert.equal(dealt.you, null);
+  assert.ok(dealt.game.players.every((p) => p.hand.length === 7), 'spectators see every hand by default');
+
+  assert.equal((await post('/api/spectate', { token: host.token })).status, 200);
+  const sideline = await stream.until((s) => s.seats.find((m) => m.name === 'Hana').seat === null);
+  assert.equal(sideline.game.players.length, 2);
+  assert.ok(sideline.seats.some((m) => m.bot), 'the vacated seat is covered by a bot');
+
+  assert.equal((await post('/api/settings', { token: guest.token, settings: { spectatorHands: false } })).status, 400);
+
+  assert.equal((await post('/api/settings', { token: host.token, settings: { spectatorHands: false } })).status, 200);
+  const hidden = await stream.until((s) => s.settings.spectatorHands === false);
+  assert.ok(hidden.game.players.every((p) => p.hand.length === 0 && p.handCount === 7));
+
+  await stream.close();
+});
+
 test.after(() => server.kill());
