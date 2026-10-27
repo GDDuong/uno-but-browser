@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UNO but Browser</title>
+  <meta name="theme-color" content="#0b1512">
+  <meta name="description" content="A browser UNO table for you and your friends.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23e0453c'/%3E%3Ctext x='16' y='23' text-anchor='middle' font-family='Georgia,serif' font-size='18' font-weight='700' fill='%23fff'%3EU%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400..800&family=Bungee&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1 class="brand">
+      <span class="brand__word">UNO</span>
+      <span class="brand__rest">but browser</span>
+    </h1>
+    <p class="status" id="status" aria-live="polite"></p>
+    <div class="controls">
+      <button class="room-pill" id="roomPill" type="button" title="Copy room code" hidden>
+        <span>Room</span>
+        <b id="roomCode"></b>
+      </button>
+      <label class="field" id="botsField">
+        <span>Bots</span>
+        <select id="bots">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+        </select>
+      </label>
+      <button class="btn" id="start" type="button" hidden>Start</button>
+    </div>
+  </header>
+
+  <main class="table">
+    <ul class="seats" id="seats" aria-label="Players"></ul>
+
+    <section class="center">
+      <div class="wait" id="wait" hidden>
+        <p class="wait__kicker">Room code</p>
+        <p class="wait__code" id="waitCode"></p>
+        <div class="wait__acts">
+          <button class="btn btn--ghost" id="copyCode" type="button">Copy code</button>
+          <button class="btn btn--ghost" id="copyLink" type="button">Copy link</button>
+        </div>
+        <p class="wait__sub" id="waitSub"></p>
+        <fieldset class="rules" id="rules">
+          <legend>House rules</legend>
+          <label class="rules__row">
+            <input type="checkbox" id="ruleForced">
+            <span>Forced play<small>The card you draw must be played if it matches.</small></span>
+          </label>
+          <label class="rules__row">
+            <input type="checkbox" id="ruleStack">
+            <span>Stacking<small>Answer a +2 or +4 with another one, or take the pile.</small></span>
+          </label>
+          <label class="rules__row">
+            <input type="checkbox" id="ruleSevenZero">
+            <span>0&ndash;7<small>0 turns every hand over, 7 swaps yours with someone.</small></span>
+          </label>
+        </fieldset>
+        <p class="wait__note" id="waitNote"></p>
+      </div>
+
+      <div class="row" id="roundRow">
+        <button class="deck" id="deck" type="button" aria-label="Draw a card">
+          <span class="deck__back" aria-hidden="true"></span>
+          <span class="deck__label" aria-hidden="true">Draw</span>
+        </button>
+        <div class="pile-wrap">
+          <span class="pile__under pile__under--a" aria-hidden="true"></span>
+          <span class="pile__under pile__under--b" aria-hidden="true"></span>
+          <div class="pile" id="pile"></div>
+        </div>
+      </div>
+      <div class="meta" id="meta">
+        <span class="chip" id="chip"></span>
+        <span class="dir" id="dir" aria-hidden="true">&#8635;</span>
+        <span class="stack" id="stack" hidden></span>
+      </div>
+    </section>
+
+    <section class="hand-wrap">
+      <div class="hand" id="hand" role="group" aria-label="Your hand" tabindex="-1"></div>
+      <div class="turnbar">
+        <p class="hint" id="hint"></p>
+        <div class="acts">
+          <button class="btn" id="draw" type="button">Draw</button>
+          <button class="btn btn--ghost" id="pass" type="button">Pass</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <details class="chat" id="chatPanel">
+    <summary class="chat__bar">
+      <span>Chat</span>
+    </summary>
+    <ul class="chat__list" id="chatList" role="log" aria-live="polite"></ul>
+    <form class="chat__form" id="chatForm">
+      <label class="sr-only" for="chatText">Message the table</label>
+      <input class="input" id="chatText" maxlength="200" autocomplete="off" placeholder="Message the table">
+      <button class="btn" type="submit">Send</button>
+    </form>
+  </details>
+
+  <dialog class="lobby" id="lobby" aria-labelledby="lobbyTitle">
+    <div class="lobby__hero">
+      <p class="lobby__kicker">UNO but browser</p>
+      <h2 class="lobby__title" id="lobbyTitle">Pull up a seat</h2>
+      <p class="lobby__lede">Two to six seats, bots welcome. Open a room, send the code, deal.</p>
+      <div class="lobby__art" aria-hidden="true">
+        <div class="card card--red"><span class="card__corner">7</span><span class="card__glyph">7</span><span class="card__corner card__corner--br">7</span></div>
+        <div class="card card--yellow"><span class="card__corner">9</span><span class="card__glyph">9</span><span class="card__corner card__corner--br">9</span></div>
+        <div class="card card--green"><span class="card__corner">S</span><span class="card__glyph"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M6.5 17.5 17.5 6.5"/></svg></span><span class="card__corner card__corner--br">S</span></div>
+        <div class="card card--blue"><span class="card__corner">R</span><span class="card__glyph"><svg class="ico" viewBox="0 0 24 24"><path d="M5 9h12l-3.2-3.2M19 15H7l3.2 3.2"/></svg></span><span class="card__corner card__corner--br">R</span></div>
+        <div class="card card--wild"><span class="card__corner">W</span><span class="card__glyph"><span class="pin"></span></span><span class="card__corner card__corner--br">W</span></div>
+      </div>
+    </div>
+    <form class="lobby__form" id="lobbyForm">
+      <label class="lobby__field">
+        <span>Your name</span>
+        <input class="input" id="name" maxlength="20" autocomplete="nickname" required>
+      </label>
+      <button class="btn lobby__cta" type="submit" value="create">Create room</button>
+      <p class="lobby__or"><span>or join with a code</span></p>
+      <div class="lobby__join">
+        <label class="sr-only" for="code">Room code</label>
+        <input class="input input--code" id="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
+        <button class="btn btn--ghost" type="submit" value="join">Join</button>
+      </div>
+      <p class="lobby__error" id="lobbyError" role="alert"></p>
+    </form>
+  </dialog>
+
+  <dialog class="pick" id="pick" aria-labelledby="pickTitle">
+    <div class="pick__form">
+      <p class="pick__title" id="pickTitle">Choose a color</p>
+      <div class="pick__row">
+        <button class="swatch" type="button" data-color="red" aria-label="Red"></button>
+        <button class="swatch" type="button" data-color="yellow" aria-label="Yellow"></button>
+        <button class="swatch" type="button" data-color="green" aria-label="Green"></button>
+        <button class="swatch" type="button" data-color="blue" aria-label="Blue"></button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="swap" id="swap" aria-labelledby="swapTitle">
+    <div class="pick__form">
+      <p class="pick__title" id="swapTitle">Swap hands with&hellip;</p>
+      <div class="swap__list" id="swapList"></div>
+    </div>
+  </dialog>
+
+  <dialog class="over" id="over" aria-labelledby="overText">
+    <p class="over__kicker">Round over</p>
+    <p class="over__title" id="overText"></p>
+    <button class="btn" id="again" type="button">Play again</button>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
