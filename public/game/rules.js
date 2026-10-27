@@ -3,8 +3,8 @@ import { COLORS, buildDeck, shuffle } from './cards.js';
 const HAND_SIZE = 7;
 const DEFAULT_RULES = { forcedPlay: false, stacking: false, sevenZero: false };
 
-export function createGame(names, { rng = Math.random, rules } = {}) {
-  const deck = shuffle(buildDeck(), rng);
+export function createGame(names, { rules } = {}) {
+  const deck = shuffle(buildDeck());
   const players = names.map((name, id) => ({ id, name, hand: deck.splice(0, HAND_SIZE) }));
 
   let first = deck.pop();
@@ -32,7 +32,7 @@ export function createGame(names, { rng = Math.random, rules } = {}) {
 
 export const topCard = (state) => state.discard[state.discard.length - 1];
 
-export function viewFor(state, viewerSeat, spectatorHands = true) {
+export function viewFor(state, viewerSeat, spectatorHands) {
   // Card ids carry no face info on the wire, so pending.cardId is safe to broadcast with the hands hidden.
   const seeAll = viewerSeat === null && spectatorHands;
   return {
@@ -61,18 +61,18 @@ export function playableCards(state) {
   return state.players[state.current].hand.filter((card) => isPlayable(state, card));
 }
 
-export function applyMove(state, move, { rng = Math.random } = {}) {
+export function applyMove(state, move) {
   if (state.phase !== 'playing') throw new Error('Game is over');
   const next = structuredClone(state);
 
-  if (move.type === 'play') return play(next, move, rng);
-  if (move.type === 'draw') return draw(next, rng);
+  if (move.type === 'play') return play(next, move);
+  if (move.type === 'draw') return draw(next);
   if (move.type === 'pass') return pass(next);
   if (move.type === 'swap') return swap(next, move);
   throw new Error(`Unknown move: ${move.type}`);
 }
 
-function play(state, move, rng) {
+function play(state, move) {
   const player = state.players[state.current];
   const index = player.hand.findIndex((c) => c.id === move.cardId);
   if (index === -1) throw new Error('Card is not in your hand');
@@ -92,23 +92,23 @@ function play(state, move, rng) {
     return state;
   }
 
-  playEffects(state, card, rng);
+  playEffects(state, card);
   return state;
 }
 
-function draw(state, rng) {
+function draw(state) {
   if (state.pick) throw new Error('Pick who to swap with first');
   if (state.pending) throw new Error('You already drew this turn');
 
   if (state.drawStack > 0) {
-    drawInto(state, state.current, state.drawStack, rng);
+    drawInto(state, state.current, state.drawStack);
     state.drawStack = 0;
     state.current = nextIndex(state, 1);
     return state;
   }
 
   const player = state.players[state.current];
-  const card = takeCard(state, rng);
+  const card = takeCard(state);
   player.hand.push(card);
   state.pending = isPlayable(state, card) ? { cardId: card.id } : null;
   if (!state.pending) state.current = nextIndex(state, 1);
@@ -136,7 +136,7 @@ function swap(state, move) {
   return state;
 }
 
-function playEffects(state, card, rng) {
+function playEffects(state, card) {
   let skip = 0;
 
   if (state.rules.sevenZero && card.face === '0') rotateHands(state);
@@ -160,7 +160,7 @@ function playEffects(state, card, rng) {
     if (state.rules.stacking) {
       state.drawStack += card.face === 'draw2' ? 2 : 4;
     } else {
-      drawInto(state, nextIndex(state, 1), card.face === 'draw2' ? 2 : 4, rng);
+      drawInto(state, nextIndex(state, 1), card.face === 'draw2' ? 2 : 4);
       skip = 1;
     }
   }
@@ -186,14 +186,14 @@ function nextIndex(state, steps) {
   return (((state.current + state.direction * steps) % n) + n) % n;
 }
 
-function drawInto(state, index, count, rng) {
-  for (let i = 0; i < count; i++) state.players[index].hand.push(takeCard(state, rng));
+function drawInto(state, index, count) {
+  for (let i = 0; i < count; i++) state.players[index].hand.push(takeCard(state));
 }
 
-function takeCard(state, rng) {
+function takeCard(state) {
   if (!state.deck.length) {
     const top = state.discard.pop();
-    state.deck = shuffle(state.discard, rng);
+    state.deck = shuffle(state.discard);
     state.discard = [top];
   }
   return state.deck.pop();

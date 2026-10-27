@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { COLORS, cardLabel } from './public/game/cards.js';
 import { applyMove, createGame, playableCards, viewFor } from './public/game/rules.js';
 
@@ -7,7 +8,7 @@ const MAX_SEATS = 10;
 const RULE_NAMES = { forcedPlay: 'forced play', stacking: 'stacking', sevenZero: '0\u20137' };
 
 export const newCode = () =>
-  Array.from({ length: 4 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
+  Array.from({ length: 4 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
 
 // ponytail: rooms live in memory until the process restarts. Prune idle rooms before this faces the internet.
 export class Room {
@@ -24,10 +25,6 @@ export class Room {
     this.timer = 0;
     this.nextId = 0;
     this.emit = () => {};
-  }
-
-  byToken(token) {
-    return this.members.find((m) => m.token === token);
   }
 
   join(name, { spectate = false } = {}) {
@@ -155,6 +152,7 @@ export class Room {
 
   start(member, bots = 0) {
     if (member !== this.creator) throw new Error('Only the room creator can start');
+    if (this.game?.phase === 'playing') throw new Error('A round is already running');
 
     clearTimeout(this.timer);
     this.members = this.members.filter((m) => !m.bot);
@@ -235,7 +233,6 @@ export class Room {
       round: this.round,
       you: member.seat,
       youId: member.id,
-      name: member.name,
       watching: member.watcher,
       canStart: member === this.creator,
       maxSeats: MAX_SEATS,

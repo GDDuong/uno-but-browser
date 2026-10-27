@@ -23,6 +23,11 @@ test('start: only the creator can start', () => {
   assert.throws(() => room.start(b, 0), /creator/);
 });
 
+test('start: refuses to reset a round in progress', () => {
+  const { room, a } = started();
+  assert.throws(() => room.start(a, 0), /already running/);
+});
+
 test('start: a lone player needs company', () => {
   const room = new Room('ABCD');
   const solo = room.join('Solo');
