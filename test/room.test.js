@@ -28,6 +28,19 @@ test('start: refuses to reset a round in progress', () => {
   assert.throws(() => room.start(a, 0), /already running/);
 });
 
+test('reset: only the host returns the room to the waiting state', () => {
+  const { room, a, b } = started();
+  assert.throws(() => room.reset(b), /creator/);
+  assert.throws(() => room.reset(a), /already running/);
+
+  room.game.phase = 'over';
+  room.reset(a);
+  assert.equal(room.game, null);
+  assert.equal(room.snapshot(b).you, 1, 'seats are kept');
+  room.setRules(a, { stacking: true });
+  assert.equal(room.snapshot(b).rules.stacking, true, 'rules unlock in the waiting room');
+});
+
 test('start: a lone player needs company', () => {
   const room = new Room('ABCD');
   const solo = room.join('Solo');

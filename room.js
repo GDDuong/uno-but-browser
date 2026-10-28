@@ -174,6 +174,16 @@ export class Room {
     this.changed();
   }
 
+  reset(member) {
+    if (member !== this.creator) throw new Error('Only the room creator can reset');
+    if (this.game?.phase === 'playing') throw new Error('A round is already running');
+
+    clearTimeout(this.timer);
+    this.game = null;
+    this.log = [];
+    this.emit();
+  }
+
   act(member, move) {
     const before = this.game;
     if (!before || before.phase !== 'playing') throw new Error('No game running');

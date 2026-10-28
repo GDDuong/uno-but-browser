@@ -158,6 +158,12 @@ test('table: a full two player game runs to a win', async () => {
   assert.match(over.log[0], /wins by playing/);
   assert.equal(over.game.players[over.game.winner].handCount ?? over.game.players[over.game.winner].hand.length, 0);
 
+  assert.equal((await post('/api/reset', { token: bram.token })).status, 400, 'guests cannot reset');
+  assert.equal((await post('/api/reset', { token: anna.token })).status, 200);
+  for (let i = 0; i < 100 && sides[0].state?.game !== null; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(sides[0].state.game, null, 'back in the waiting room');
+  assert.equal(sides[0].state.seats.length, 2);
+
   await Promise.all(sides.map((s) => s.stream.close()));
 });
 

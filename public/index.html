@@ -98,6 +98,7 @@
           <span class="deck__label" aria-hidden="true">Draw</span>
         </button>
         <div class="pile-wrap">
+          <span class="fx-banner" id="banner" aria-hidden="true"></span>
           <span class="pile__under pile__under--a" aria-hidden="true"></span>
           <span class="pile__under pile__under--b" aria-hidden="true"></span>
           <div class="pile" id="pile"></div>
@@ -165,29 +166,14 @@
     </form>
   </dialog>
 
-  <dialog class="pick" id="pick" aria-labelledby="pickTitle">
-    <div class="pick__form">
-      <p class="pick__title" id="pickTitle">Choose a color</p>
-      <div class="pick__row">
-        <button class="swatch" type="button" data-color="red" aria-label="Red"></button>
-        <button class="swatch" type="button" data-color="yellow" aria-label="Yellow"></button>
-        <button class="swatch" type="button" data-color="green" aria-label="Green"></button>
-        <button class="swatch" type="button" data-color="blue" aria-label="Blue"></button>
-      </div>
-    </div>
-  </dialog>
-
-  <dialog class="swap" id="swap" aria-labelledby="swapTitle">
-    <div class="pick__form">
-      <p class="pick__title" id="swapTitle">Swap hands with&hellip;</p>
-      <div class="swap__list" id="swapList"></div>
-    </div>
-  </dialog>
-
   <dialog class="over" id="over" aria-labelledby="overText">
     <p class="over__kicker">Round over</p>
     <p class="over__title" id="overText"></p>
-    <button class="btn" id="again" type="button">Play again</button>
+    <div class="over__acts">
+      <button class="btn" id="again" type="button">Play again</button>
+      <button class="btn btn--ghost" id="toLobby" type="button" hidden>Waiting room</button>
+      <button class="btn btn--ghost" id="exitOver" type="button">Leave room</button>
+    </div>
   </dialog>
 
   <script type="module" src="app.js"></script>

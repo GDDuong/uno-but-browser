@@ -1,4 +1,4 @@
-import { cardLabel } from './game/cards.js';
+import { COLORS, cardLabel } from './game/cards.js';
 import { isPlayable, playableCards, topCard } from './game/rules.js';
 
 const $ = (id) => document.getElementById(id);
@@ -12,7 +12,70 @@ const FACE_ORDER = { skip: 10, reverse: 11, draw2: 12, wild: 13, draw4: 14 };
 const CORNER = { skip: 'S', reverse: 'R', draw2: '+2', wild: 'W', draw4: '+4' };
 const RULE_KEYS = { ruleForced: 'forcedPlay', ruleStack: 'stacking', ruleSevenZero: 'sevenZero' };
 
-const app = { snap: null, stream: null, error: '', pickCard: null, round: 0, lastTop: null, winKey: null };
+const app = { snap: null, stream: null, error: '', pickCard: null, round: 0, lastTop: null, winKey: null, fx: null };
+
+const sfx = (() => {
+  let ctx;
+  const ac = () => (ctx ??= new (window.AudioContext ?? window.webkitAudioContext)());
+
+  function noise(dur, freq, peak, delay = 0) {
+    const t0 = ac().currentTime + delay;
+    const src = ac().createBufferSource();
+    const buf = ac().createBuffer(1, ac().sampleRate * dur, ac().sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    src.buffer = buf;
+    const filter = ac().createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = freq;
+    filter.Q.value = 1.2;
+    const gain = ac().createGain();
+    gain.gain.setValueAtTime(peak, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    src.connect(filter).connect(gain).connect(ac().destination);
+    src.start(t0);
+  }
+
+  function note(freq, dur, peak, delay = 0) {
+    const t0 = ac().currentTime + delay;
+    const osc = ac().createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    const gain = ac().createGain();
+    gain.gain.setValueAtTime(peak, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain).connect(ac().destination);
+    osc.start(t0);
+    osc.stop(t0 + dur);
+  }
+
+  return {
+    unlock() {
+      ac().resume?.();
+    },
+    play() {
+      noise(0.12, 1900, 0.5);
+      note(880, 0.05, 0.12, 0.01);
+    },
+    draw() {
+      noise(0.18, 800, 0.35);
+    },
+    action() {
+      noise(0.1, 1400, 0.4);
+      note(320, 0.16, 0.28, 0.02);
+    },
+    block() {
+      note(180, 0.12, 0.3);
+      note(140, 0.16, 0.3, 0.1);
+    },
+    pick() {
+      note(1046, 0.06, 0.16);
+    },
+    win() {
+      [523, 659, 784, 1047].forEach((f, i) => note(f, 0.22, 0.22, i * 0.09));
+    },
+  };
+})();
 
 const stored = () => JSON.parse(sessionStorage.getItem('uno') ?? 'null');
 const esc = (text) =>
@@ -68,13 +131,109 @@ async function copy(text, target) {
   setTimeout(() => delete target.dataset.copied, 1200);
 }
 
+const countOf = (p) => p.handCount ?? p.hand.length;
+
+function react(prev, snap) {
+  app.fx = null;
+  if (!prev || prev.round !== snap.round) return;
+  const g = snap.game;
+  const pg = prev.game;
+  if (!g || !pg || g.phase !== 'playing') {
+    if (g?.phase === 'over' && pg?.phase === 'playing') sfx.win();
+    return;
+  }
+
+  if (g.discard.length > pg.discard.length) {
+    const top = topCard(g);
+    const fx = { seats: [{ seat: pg.current, kind: 'play' }] };
+    const color = top.color === 'wild' ? g.activeColor : top.color;
+    fx.fly = cardHTML(top, '', color);
+    const label = { draw2: '+2', draw4: '+4', skip: 'SKIP', reverse: 'REVERSE' }[top.face];
+    if (label) {
+      fx.banner = { text: label, color };
+      if (top.face === 'draw2' || top.face === 'draw4') fx.shake = true;
+      sfx.action();
+    } else if (top.color === 'wild') {
+      fx.banner = { text: color.toUpperCase(), color };
+    } else {
+      sfx.play();
+    }
+
+    const n = g.players.length;
+    const next = (((pg.current + pg.direction) % n) + n) % n;
+    if (g.current !== next) {
+      fx.seats.push({ seat: next, kind: 'blocked' });
+      sfx.block();
+    }
+    app.fx = fx;
+    return;
+  }
+
+  const seats = [];
+  for (const p of g.players) if (countOf(p) > countOf(pg.players[p.id])) seats.push({ seat: p.id, kind: 'draw' });
+  if (!seats.length && pg.pick && !g.pick) seats.push({ seat: pg.current, kind: 'swap' });
+  if (seats.length) {
+    app.fx = { seats };
+    sfx.draw();
+  }
+}
+
+function applyFx() {
+  const fx = app.fx;
+  if (!fx) return;
+  app.fx = null;
+
+  if (fx.banner) {
+    const banner = $('banner');
+    banner.textContent = fx.banner.text;
+    banner.dataset.color = fx.banner.color;
+    banner.classList.remove('is-show');
+    void banner.offsetWidth;
+    banner.classList.add('is-show');
+    clearTimeout(applyFx.bannerTimer);
+    applyFx.bannerTimer = setTimeout(() => banner.classList.remove('is-show'), 1400);
+  }
+
+  if (fx.shake) {
+    const wrap = pileEl.closest('.pile-wrap');
+    wrap.classList.remove('is-shake');
+    void wrap.offsetWidth;
+    wrap.classList.add('is-shake');
+  }
+
+  for (const { seat, kind } of fx.seats) {
+    const el = document.querySelector(`#seats .seat[data-seat="${seat}"]`);
+    if (!el) continue;
+    if (kind === 'play') fly(el, pileEl, cardHTML(fx.top));
+    if (kind === 'draw') fly(deckBtn, el, '<span class="fx-back"></span>');
+    el.classList.add(`is-${kind}`);
+    setTimeout(() => el.classList.remove(`is-${kind}`), kind === 'blocked' ? 1600 : 600);
+  }
+}
+
+function fly(from, to, html) {
+  const a = from.getBoundingClientRect();
+  const b = to.getBoundingClientRect();
+  const el = document.createElement('div');
+  el.className = 'fx-fly';
+  el.innerHTML = html;
+  el.style.left = `${a.left + a.width / 2}px`;
+  el.style.top = `${a.top + a.height / 2}px`;
+  el.style.setProperty('--dx', `${b.left + b.width / 2 - a.left - a.width / 2}px`);
+  el.style.setProperty('--dy', `${b.top + b.height / 2 - a.top - a.height / 2}px`);
+  document.body.append(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
 function connect({ room, token }) {
   history.replaceState(null, '', `/?room=${room}`);
   app.stream?.close();
   app.stream = new EventSource(`/api/stream?token=${encodeURIComponent(token)}`);
   app.stream.addEventListener('state', (event) => {
+    const prev = app.snap;
     app.snap = JSON.parse(event.data);
     app.error = '';
+    react(prev, app.snap);
     render();
   });
   app.stream.addEventListener('error', () => {
@@ -101,7 +260,7 @@ function connect({ room, token }) {
     app.round = 0;
     app.winKey = null;
     app.lastTop = null;
-    for (const id of ['pick', 'swap', 'over']) if ($(id).open) $(id).close();
+    if ($('over').open) $('over').close();
     history.replaceState(null, '', '/');
     $('lobbyError').textContent = reason;
     $('roomChip').hidden = true;
@@ -140,9 +299,9 @@ function render() {
   renderCenter(snap.game);
   renderHand(snap);
   renderTurn(snap);
-  renderSwap(snap);
   renderChat(snap);
   renderWin(snap);
+  applyFx();
 
   if (hadHandFocus) {
     const same = activeId && handEl.querySelector(`.card--hand[data-id="${activeId}"]:not(:disabled)`);
@@ -154,17 +313,20 @@ function render() {
 function renderSeats(snap) {
   const g = snap.game;
   const seated = new Map(snap.seats.filter((m) => m.seat !== null).map((m) => [m.seat, m]));
+  const swapping = !!g && g.phase === 'playing' && g.pick?.type === 'swap' && g.current === snap.you;
   const players = g
     ? g.players.map((p) => {
         const m = seated.get(p.id);
         return {
           name: p.name,
+          seat: p.id,
+          swap: swapping && p.id !== snap.you,
           count: p.handCount ?? p.hand.length,
           active: g.phase === 'playing' && p.id === g.current,
           winner: p.id === g.winner,
           you: p.id === snap.you,
           host: m?.host,
-          kick: snap.canStart && m && !m.host && !m.bot ? m.id : null,
+          kick: !swapping && snap.canStart && m && !m.host && !m.bot ? m.id : null,
         };
       })
     : snap.seats
@@ -194,7 +356,7 @@ function renderSeats(snap) {
 }
 
 function seatHTML(row) {
-  return `<li class="seat${row.active ? ' is-active' : ''}${row.winner ? ' is-winner' : ''}${row.you ? ' is-you' : ''}">
+  return `<li class="seat${row.active ? ' is-active' : ''}${row.winner ? ' is-winner' : ''}${row.you ? ' is-you' : ''}${row.swap ? ' is-swap' : ''}"${row.seat !== undefined ? ` data-seat="${row.seat}"` : ''}>
     <span class="seat__avatar" aria-hidden="true">${esc(initials(row.name))}</span>
     <span class="seat__name">${esc(row.name)}</span>
     ${row.host ? '<span class="seat__host">host</span>' : ''}
@@ -226,24 +388,6 @@ function renderWait(snap) {
     : 'Only the host can change the rules or table settings.';
 }
 
-function renderSwap(snap) {
-  const g = snap.game;
-  const mine = !!g && g.phase === 'playing' && g.pick && g.current === snap.you;
-  const dialog = $('swap');
-  if (!mine) {
-    if (dialog.open) dialog.close();
-    return;
-  }
-
-  $('swapList').innerHTML = g.players
-    .filter((p) => p.id !== snap.you)
-    .map(
-      (p) => `<button class="btn btn--ghost" type="button" data-seat="${p.id}">${esc(p.name)} <small>${p.handCount ?? p.hand.length} cards</small></button>`,
-    )
-    .join('');
-  if (!dialog.open) dialog.showModal();
-}
-
 function renderCenter(g) {
   if (!g) {
     pileEl.innerHTML = '';
@@ -255,7 +399,8 @@ function renderCenter(g) {
   }
 
   const top = topCard(g);
-  pileEl.innerHTML = cardHTML(top, app.lastTop !== top.id ? 'is-new' : '');
+  const shown = top.color === 'wild' ? g.activeColor : top.color;
+  pileEl.innerHTML = cardHTML(top, app.lastTop !== top.id ? 'is-new' : '', shown);
   app.lastTop = top.id;
   pileEl.style.setProperty('--glow', `var(--${g.activeColor})`);
 
@@ -306,13 +451,15 @@ function renderHand(snap) {
   const yourTurn = !!g && g.phase === 'playing' && g.current === snap.you;
 
   handEl.style.setProperty('--ov', hand.length > 10 ? -0.42 : hand.length > 8 ? -0.28 : hand.length > 6 ? -0.16 : -0.1);
+  handEl.classList.toggle('is-picking', app.pickCard !== null);
   handEl.innerHTML = hand
     .map((card, i) => {
       const playable = yourTurn && isPlayable(g, card);
-      const cls = !yourTurn ? ' is-wait' : playable ? '' : ' is-off';
-      const label = yourTurn && !playable ? `${cardLabel(card)}, cannot be played` : cardLabel(card);
+      const choosing = app.pickCard === card.id;
+      const cls = !yourTurn ? ' is-wait' : choosing ? ' is-choosing' : playable ? '' : ' is-off';
+      const label = choosing ? `${cardLabel(card)}, pick a color` : yourTurn && !playable ? `${cardLabel(card)}, cannot be played` : cardLabel(card);
       const style = `--rot:${(i - mid) * 2.4}deg;--lift:${Math.abs(i - mid) * 2.2}px;--i:${i}`;
-      return `<button class="card card--${card.color} card--hand${cls}" data-id="${card.id}" style="${style}" aria-label="${label}"${playable ? '' : ' disabled'}>${cardInner(card)}</button>`;
+      return `<button class="card card--${card.color} card--hand${cls}" data-id="${card.id}" style="${style}" aria-label="${label}"${playable ? '' : ' disabled'}>${cardInner(card)}${choosing ? picker(card.face) : ''}</button>`;
     })
     .join('');
 }
@@ -341,7 +488,8 @@ function renderTurn(snap) {
   else if (g.phase === 'over') hint = 'Start a new round when you are ready.';
   else if (snap.you === null) hint = snap.watching ? 'Spectating.' : 'Sitting in next round.';
   else if (!yourTurn) hint = 'Waiting on the table\u2026';
-  else if (g.pick) hint = 'Pick who to swap hands with.';
+  else if (g.pick) hint = 'Tap a player to swap hands.';
+  else if (app.pickCard !== null) hint = 'Now tap a color on the card.';
   else if (g.pending) hint = 'Play the card you drew, or pass.';
   else if (g.drawStack > 0) hint = `Answer with a draw card, or take ${g.drawStack}.`;
   else if (plays.length) hint = 'Tap a card to play it.';
@@ -372,6 +520,8 @@ function renderWin(snap) {
   app.winKey = key;
   const dialog = $('over');
   $('overText').textContent = g.players[g.winner].id === snap.you ? 'You win' : `${g.players[g.winner].name} wins`;
+  $('again').hidden = !snap.canStart;
+  $('toLobby').hidden = !snap.canStart;
   dialog.returnValue = '';
   dialog.showModal();
 }
@@ -382,9 +532,7 @@ function playCard(cardId) {
 
   if (card.color === 'wild') {
     app.pickCard = cardId;
-    const dialog = $('pick');
-    dialog.returnValue = '';
-    dialog.showModal();
+    render();
     return;
   }
   send('/api/move', { move: { type: 'play', cardId } });
@@ -408,19 +556,26 @@ function leaveRoom() {
 }
 
 handEl.addEventListener('click', (event) => {
+  const q = event.target.closest('.q');
+  if (q && app.pickCard !== null) {
+    const cardId = app.pickCard;
+    app.pickCard = null;
+    sfx.pick();
+    send('/api/move', { move: { type: 'play', cardId, color: q.dataset.color } });
+    return;
+  }
+
   const button = event.target.closest('button.card--hand');
-  if (!button || button.disabled) return;
-  playCard(Number(button.dataset.id));
-});
-
-$('pick').addEventListener('click', (event) => {
-  const swatch = event.target.closest('.swatch');
-  if (!swatch) return;
-
-  const cardId = app.pickCard;
-  app.pickCard = null;
-  $('pick').close();
-  if (cardId !== null) send('/api/move', { move: { type: 'play', cardId, color: swatch.dataset.color } });
+  if (!button) return;
+  const id = Number(button.dataset.id);
+  if (app.pickCard !== null) {
+    const wasChoosing = app.pickCard === id;
+    app.pickCard = null;
+    render();
+    if (wasChoosing || button.disabled) return;
+  }
+  if (button.disabled) return;
+  playCard(id);
 });
 
 $('draw').addEventListener('click', () => send('/api/move', { move: { type: 'draw' } }));
@@ -430,6 +585,14 @@ $('start').addEventListener('click', beginRound);
 $('again').addEventListener('click', () => {
   $('over').close();
   beginRound();
+});
+$('toLobby').addEventListener('click', () => {
+  $('over').close();
+  send('/api/reset');
+});
+$('exitOver').addEventListener('click', () => {
+  $('over').close();
+  leaveRoom();
 });
 
 $('copyRoom').addEventListener('click', () => copy(app.snap.room, $('copyRoom')));
@@ -445,6 +608,11 @@ $('home').addEventListener('click', () => {
   else leaveRoom();
 });
 $('roster').addEventListener('click', (event) => {
+  const swap = event.target.closest('.seat.is-swap');
+  if (swap) {
+    send('/api/move', { move: { type: 'swap', seat: Number(swap.dataset.seat) } });
+    return;
+  }
   const kick = event.target.closest('[data-kick]');
   if (!kick) return;
   if (confirm(`Kick ${kick.dataset.name}? They can rejoin with the room code.`)) {
@@ -460,14 +628,6 @@ $('rules').addEventListener('change', () => {
 
 $('tableSettings').addEventListener('change', () => {
   send('/api/settings', { settings: { spectatorHands: $('settingSpectatorHands').checked } });
-});
-
-$('swap').addEventListener('cancel', (event) => event.preventDefault());
-$('swap').addEventListener('click', (event) => {
-  const choice = event.target.closest('[data-seat]');
-  if (!choice) return;
-  $('swap').close();
-  send('/api/move', { move: { type: 'swap', seat: Number(choice.dataset.seat) } });
 });
 
 $('lobby').addEventListener('cancel', (event) => event.preventDefault());
@@ -511,6 +671,11 @@ const faceRank = (face) => (face.length === 1 ? Number(face) : FACE_ORDER[face])
 const byCardOrder = (a, b) =>
   COLOR_ORDER[a.color] - COLOR_ORDER[b.color] || faceRank(a.face) - faceRank(b.face) || a.id - b.id;
 
+const picker = (face) =>
+  `<span class="picker${face === 'draw4' ? ' picker--squares' : ''}">${COLORS.map(
+    (c) => `<span class="q q--${c}" data-color="${c}" aria-label="Choose ${c}"></span>`,
+  ).join('')}</span>`;
+
 function cardInner(card) {
   const corner = CORNER[card.face] ?? card.face;
   return `<span class="card__corner">${corner}</span><span class="card__glyph">${glyph(card)}</span><span class="card__corner card__corner--br">${corner}</span>`;
@@ -529,9 +694,11 @@ function glyph(card) {
   return `<span class="num">${card.face}</span>`;
 }
 
-function cardHTML(card, cls = '') {
-  return `<div class="card card--${card.color}${cls ? ` ${cls}` : ''}" role="img" aria-label="Discard pile: ${cardLabel(card)}">${cardInner(card)}</div>`;
+function cardHTML(card, cls = '', color = card.color) {
+  return `<div class="card card--${color}${cls ? ` ${cls}` : ''}" role="img" aria-label="Discard pile: ${cardLabel(card)}">${cardInner(card)}</div>`;
 }
+
+document.addEventListener('click', () => sfx.unlock(), { once: true });
 
 const params = new URLSearchParams(location.search);
 const saved = stored();
